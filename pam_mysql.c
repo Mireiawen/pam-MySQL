@@ -637,6 +637,7 @@ static char *pam_mysql_md5_data(const unsigned char *d, unsigned int sz, char *m
 /* {{{ pam_mysql_sha1_data */
 #if defined(HAVE_OPENSSL)
 #define HAVE_PAM_MYSQL_SHA1_DATA
+#define HAVE_PAM_MYSQL_SHA256_DATA
 static char *pam_mysql_sha1_data(const unsigned char *d, unsigned int sz, char *md)
 {
   size_t i, j;
@@ -649,6 +650,28 @@ static char *pam_mysql_sha1_data(const unsigned char *d, unsigned int sz, char *
   }
 
   SHA1(d, (unsigned long)sz, buf);
+
+  for (i = 0, j = 0; i < 20; i++, j += 2) {
+    md[j + 0] = "0123456789abcdef"[(int)(buf[i] >> 4)];
+    md[j + 1] = "0123456789abcdef"[(int)(buf[i] & 0x0f)];
+  }
+  md[j] = '\0';
+
+  return md;
+}
+
+static char *pam_mysql_sha256_data(const unsigned char *d, unsigned int sz, char *md)
+{
+  size_t i, j;
+  unsigned char buf[20];
+
+  if (md == NULL) {
+    if ((md = xcalloc(40 + 1, sizeof(char))) == NULL) {
+      return NULL;
+    }
+  }
+
+  SHA256(d, (unsigned long)sz, buf);
 
   for (i = 0, j = 0; i < 20; i++, j += 2) {
     md[j + 0] = "0123456789abcdef"[(int)(buf[i] >> 4)];
@@ -878,6 +901,109 @@ static char *pam_mysql_drupal7_data(const unsigned char *pwd, unsigned int sz, c
 #endif
 /* }}} */
 
+#if defined(HAVE_PAM_MYSQL_SHA256_DATA)
+#define HAVE_PAM_MYSQL_MAGENTO2X
+
+static char *m2x_hash(const char *string, const int len)
+{
+    unsigned char *hash = xcalloc(SHA256_DIGEST_LENGTH, sizeof(unsigned char));
+    char *out = xcalloc(SHA256_DIGEST_LENGTH * 2 + 1, sizeof(char));
+    int i;
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    SHA256_Update(&ctx, string, len);
+    SHA256_Final(hash, &ctx);
+    for (i = 0; i < SHA256_DIGEST_LENGTH; i++)
+    {
+      sprintf(out + (i*2), "%02x", hash[i]);
+    }
+    xfree(hash);
+    return out;
+}
+
+static char *m2x_password_crypt(const char *password, const char *salt, const char *mode)
+{
+    // Password length, Salt length and null terminator
+    char *combined = xcalloc(strlen(password) + strlen(salt) + 1, sizeof(char));
+    char *hash = NULL;
+
+    if (!combined)
+    {
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to allocate memory for combined value.");
+      return NULL;
+    }
+
+    // Create the password string
+    if (sprintf(combined, "%s%s", salt, password) < 0)
+    {
+      xfree(combined);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to write the combined value.");
+      return NULL;
+    }
+
+    hash = m2x_hash(combined, strlen(combined));
+    xfree(combined);
+
+    // Hash length, salt length, 2 separators, mode and null terminator
+    combined = xcalloc(strlen(hash) + strlen(salt) + strlen(mode) + 2 + 1, sizeof(char));
+
+    if (!combined)
+    {
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to allocate memory for combined value.");
+      return NULL;
+    }
+
+    // Create the password string
+    if (sprintf(combined, "%s:%s:%s", hash, salt, mode) < 0)
+    {
+      xfree(combined);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to write the combined value.");
+      return NULL;
+    }
+    xfree(hash);
+    return combined;
+}
+
+static char *pam_mysql_magento2x_data(const unsigned char *pwd, unsigned int sz, char *md, const char *db_pwd)
+{
+    char *stored_password = strdup(db_pwd);
+    char *stored_pointer = stored_password;
+    char *stored_hash = NULL;
+    char *stored_salt = NULL;
+    char *stored_mode = NULL;
+    char *hashed = NULL;
+    size_t i, count;
+
+    for (i=0, count=0; db_pwd[i]; i++)
+    {
+      count += (db_pwd[i] == ':');
+    }
+    if (count != 2)
+    {
+      xfree(stored_password);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Hash not as expected.");
+      return NULL;
+    }
+
+    stored_hash = strdup(strsep(&stored_password, ":"));
+    stored_salt = strdup(strsep(&stored_password, ":"));
+    stored_mode = strdup(strsep(&stored_password, ":"));
+    xfree(stored_pointer);
+
+    hashed = m2x_password_crypt((char *)pwd, stored_salt, stored_mode);
+
+    xfree(stored_hash);
+    xfree(stored_salt);
+    xfree(stored_mode);
+
+    memcpy(md, hashed, strlen(hashed));
+    xfree(hashed);
+    return md;
+}
+
+#endif
+/* }}} */
+
 /* {{{ option handlers */
 /* {{{ pam_mysql_string_opt_getter */
 static pam_mysql_err_t pam_mysql_string_opt_getter(void *val, const char **pretval, int *to_release)
@@ -960,6 +1086,14 @@ static pam_mysql_err_t pam_mysql_crypt_opt_getter(void *val, const char **pretva
       *pretval = "joomla15";
       break;
 
+    case 7:
+      *pretval = "magento19";
+      break;
+
+    case 8:
+      *pretval = "magento2x";
+      break;
+
     default:
       *pretval = NULL;
   }
@@ -1003,6 +1137,16 @@ static pam_mysql_err_t pam_mysql_crypt_opt_setter(void *val, const char *newval_
 
   if (strcmp(newval_str, "6") == 0 || strcasecmp(newval_str, "joomla15") == 0) {
     *(int *)val = 6;
+    return PAM_MYSQL_ERR_SUCCESS;
+  }
+
+  if (strcmp(newval_str, "7") == 0 || strcasecmp(newval_str, "magento19") == 0) {
+    *(int *)val = 7;
+    return PAM_MYSQL_ERR_SUCCESS;
+  }
+
+  if (strcmp(newval_str, "8") == 0 || strcasecmp(newval_str, "magento2x") == 0) {
+    *(int *)val = 8;
     return PAM_MYSQL_ERR_SUCCESS;
   }
 
@@ -3022,6 +3166,42 @@ static pam_mysql_err_t pam_mysql_check_passwd(pam_mysql_ctx_t *ctx,
               xfree(tmp);
 #else
               syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "non-crypt()ish MD5 hash is not supported in this build.");
+#endif
+            } break;
+
+          case 7:
+            {
+              /* Magento 1.x like password */
+#ifdef HAVE_PAM_MYSQL_MD5_DATA
+              char buf[128];
+              memset(buf, 0, 128);
+              pam_mysql_magento19_data((unsigned char*)passwd, strlen(passwd),
+                  buf, row[0]);
+              vresult = strcmp(row[0], buf);
+              {
+                char *p = buf - 1;
+                while (*(++p)) *p = '\0';
+              }
+#else
+              syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "non-crypt()ish MD5 hash is not supported in this build.");
+#endif
+            } break;
+
+          case 8:
+            {
+              /* Magento 2.x SHA256 salted password */
+#if defined(HAVE_PAM_MYSQL_SHA256_DATA)
+              char buf[128];
+              memset(buf, 0, 128);
+              pam_mysql_magento2x_data((unsigned char*)passwd, strlen(passwd),
+                  buf, row[0]);
+              vresult = strcmp(row[0], buf);
+              {
+                char *p = buf - 1;
+                while (*(++p)) *p = '\0';
+              }
+#else
+              syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "non-crypt()ish SHA support lacking in this build.");
 #endif
             } break;
 
