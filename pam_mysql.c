@@ -901,6 +901,96 @@ static char *pam_mysql_drupal7_data(const unsigned char *pwd, unsigned int sz, c
 #endif
 /* }}} */
 
+#if defined(HAVE_PAM_MYSQL_MD5_DATA)
+#define HAVE_PAM_MYSQL_MAGENTO19
+
+static char *m19_hash(const char *string, const int len)
+{
+    char *out = xcalloc(MD5_DIGEST_LENGTH + 1, sizeof(char));
+    MD5(string, (unsigned long)len, out);
+    return out;
+}
+
+static char *m19_password_crypt(const char *password, const char *salt)
+{
+    // Password length, Salt length and null terminator
+    char *combined = xcalloc(strlen(password) + strlen(salt) + 1, sizeof(char));
+    char *hash = NULL;
+
+    if (!combined)
+    {
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to allocate memory for combined value.");
+      return NULL;
+    }
+
+    // Create the password string
+    if (sprintf(combined, "%s%s", salt, password) < 0)
+    {
+      xfree(combined);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to write the combined value.");
+      return NULL;
+    }
+
+    hash = m19_hash(combined, strlen(combined));
+    xfree(combined);
+
+    // Hash length, salt length, 1 separator and null terminator
+    combined = xcalloc(strlen(hash) + strlen(salt) + 1 + 1, sizeof(char));
+
+    if (!combined)
+    {
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to allocate memory for combined value.");
+      return NULL;
+    }
+
+    // Create the password string
+    if (sprintf(combined, "%s:%s", hash, salt) < 0)
+    {
+      xfree(combined);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Failed to write the combined value.");
+      return NULL;
+    }
+    xfree(hash);
+    return combined;
+}
+
+static char *pam_mysql_magento19_data(const unsigned char *pwd, unsigned int sz, char *md, const char *db_pwd)
+{
+    char *stored_password = strdup(db_pwd);
+    char *stored_pointer = stored_password;
+    char *stored_hash = NULL;
+    char *stored_salt = NULL;
+    char *hashed = NULL;
+    size_t i, count;
+
+    for (i=0, count=0; db_pwd[i]; i++)
+    {
+      count += (db_pwd[i] == ':');
+    }
+    if (count != 1)
+    {
+      xfree(stored_password);
+      syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "hash: Hash not as expected.");
+      return NULL;
+    }
+
+    stored_hash = strdup(strsep(&stored_password, ":"));
+    stored_salt = strdup(strsep(&stored_password, ":"));
+    xfree(stored_pointer);
+
+    hashed = m19_password_crypt((char *)pwd, stored_salt);
+
+    xfree(stored_hash);
+    xfree(stored_salt);
+
+    memcpy(md, hashed, strlen(hashed));
+    xfree(hashed);
+    return md;
+}
+
+#endif
+/* }}} */
+
 #if defined(HAVE_PAM_MYSQL_SHA256_DATA)
 #define HAVE_PAM_MYSQL_MAGENTO2X
 
