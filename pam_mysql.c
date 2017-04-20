@@ -906,8 +906,15 @@ static char *pam_mysql_drupal7_data(const unsigned char *pwd, unsigned int sz, c
 
 static char *m19_hash(const char *string, const int len)
 {
-    char *out = xcalloc(MD5_DIGEST_LENGTH + 1, sizeof(char));
-    MD5(string, (unsigned long)len, out);
+    unsigned char *hash = xcalloc(MD5_DIGEST_LENGTH, sizeof(unsigned char));
+    char *out = xcalloc(MD5_DIGEST_LENGTH * 2 + 1, sizeof(char));
+    int i;
+    MD5(string, (unsigned long)len, hash);
+    for (i = 0; i < MD5_DIGEST_LENGTH; i++)
+    {
+      sprintf(out + (i*2), "%02x", hash[i]);
+    }
+    xfree(hash);
     return out;
 }
 
