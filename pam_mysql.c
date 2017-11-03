@@ -2775,6 +2775,8 @@ static pam_mysql_err_t pam_mysql_open_db(pam_mysql_ctx_t *ctx)
     return PAM_MYSQL_ERR_INVAL;
   }
 
+  mysql_library_init(0, NULL, NULL);
+
   if (ctx->host != NULL) {
     if (ctx->host[0] == '/') {
       host = NULL;
