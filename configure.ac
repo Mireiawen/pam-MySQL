@@ -28,6 +28,30 @@ AC_CHECK_FUNCS([getaddrinfo])
 PAM_MYSQL_CHECK_IPV6
 PAM_MYSQL_CHECK_GETHOSTBYNAME_R
 
+AC_ARG_ENABLE([mysql-library-init],
+    [AS_HELP_STRING([--enable-mysql-library-init],[initialize the MySQL library @<:@default=no@:>@])],
+    enable_mysql_library_init=${enableval},
+    [enable_mysql_library_init=no])
+enable_mysql_library_init=`echo $enable_mysql_library_init`
+case $enable_mysql_library_init in
+  yes | no) ;;
+  *) AC_MSG_ERROR([unknown option '$enable_mysql_library_init' for --enable-mysql-library-init]) ;;
+esac
+AS_IF([test x"$enable_mysql_lib_init" == xyes],
+    [AC_DEFINE([MYSQL_LIBRARY_INIT], [1], [Define to 1 if using MySQL library init function])])
+
+AC_ARG_ENABLE([mysql-library-end],
+    [AS_HELP_STRING([--enable-mysql-library-end],[end the MySQL library @<:@default=yes@:>@])],
+    enable_mysql_library_end=${enableval},
+    [enable_mysql_library_end=yes])
+enable_mysql_library_end=`echo $enable_mysql_library_end`
+case $enable_mysql_library_end in
+  yes | no) ;;
+  *) AC_MSG_ERROR([unknown option '$enable_mysql_library_end' for --enable-mysql-library-end]) ;;
+esac
+AS_IF([test x"$enable_mysql_lib_end" == xyes],
+    [AC_DEFINE([MYSQL_LIBRARY_END], [1], [Define to 1 if using MySQL library end function])])
+
 AC_ARG_WITH([mysql], [  --with-mysql=PREFIX     specify MySQL installation prefix], [
   PAM_MYSQL_CHECK_LIBMYSQLCLIENT(["$withval"])
 ], [

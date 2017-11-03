@@ -388,6 +388,9 @@ static char *xstrdup(const char *ptr);
 static void xfree(void *ptr);
 static void xfree_overwrite(char *ptr);
 
+/* static global variables */
+static int mysql_library = 0;
+
 /**
  * Local strnncpy.
  *
@@ -3524,7 +3527,19 @@ static pam_mysql_err_t pam_mysql_open_db(pam_mysql_ctx_t *ctx)
         }
     }
 
-    mysql_library_init(0, NULL, NULL);
+#ifdef MYSQL_LIBRARY_INIT
+    if (mysql_library == 0) {
+        if (ctx->verbose) {
+            syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "calling mysql_library_init().");
+        }
+        mysql_library_init(0, NULL, NULL);
+    }
+#endif
+    mysql_library++;
+    if (ctx->verbose) {
+        syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "mysql_library set to %d.", mysql_library);
+    }
+
     if (NULL == mysql_init(ctx->mysql_hdl)) {
         err = PAM_MYSQL_ERR_ALLOC;
         goto out;
@@ -3578,10 +3593,21 @@ static void pam_mysql_close_db(pam_mysql_ctx_t *ctx)
 
     mysql_close(ctx->mysql_hdl);
 
-    mysql_library_end();
-
     xfree(ctx->mysql_hdl);
     ctx->mysql_hdl = NULL;
+
+    mysql_library--;
+    if (ctx->verbose) {
+        syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "mysql_library set to %d.", mysql_library);
+    }
+#ifdef MYSQL_LIBRARY_END
+    if (mysql_library == 0) {
+        if (ctx->verbose) {
+            syslog(LOG_AUTHPRIV | LOG_ERR, PAM_MYSQL_LOG_PREFIX "calling mysql_library_end().");
+        }
+        mysql_library_end();
+    }
+#endif
 }
 
 /**
