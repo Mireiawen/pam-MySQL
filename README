@@ -133,9 +133,9 @@ crypt (plain)
        
        6 (or "joomla15")	= Use Joomla 1.5 salted passwords
        
-       7 (or "magento19")	= Use Magento 1.9 salted passwords (MD5)
+       10 (or "magento19")	= Use Magento 1.9 salted passwords (MD5)
        
-       8 (or "magento2x")	= Use Magento 2.x salted passwords (SHA-256)
+       11 (or "magento2x")	= Use Magento 2.x salted passwords (SHA-256)
 
 md5 (false)
 
